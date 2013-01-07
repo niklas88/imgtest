@@ -36,7 +36,8 @@ func (p *FloatImg) PixOffset(x, y int) int {
 	return (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*p.Chancnt
 }
 
-// At gets the float32 value at position x, y for channel c
+// At gets a []float32 corresponing to the channels at position x,y the values
+// at this postion can be manipulated using the returned slice
 func (p *FloatImg) At(x, y int) []float32 {
 	i := p.PixOffset(x, y)
 	return p.Pix[i:c]

@@ -37,9 +37,9 @@ func (p *FloatImg) PixOffset(x, y int) int {
 }
 
 // At gets the float32 value at position x, y for channel c
-func (p *FloatImg) At(x, y, c int) float32 {
+func (p *FloatImg) At(x, y int) []float32 {
 	i := p.PixOffset(x, y)
-	return p.Pix[i+c]
+	return p.Pix[i:c]
 }
 
 // Set sets the float32 value val at position x,y for channel c
@@ -52,20 +52,24 @@ func (p *FloatImg) Set(x, y, c int, val float32) {
 func (f *FloatImg) Dummies() {
 	bounds := f.Bounds()
 	for x := bounds.Min.X + 1; x < bounds.Max.X-1; x++ {
+		chansUp := f.At(x, bounds.Min.Y+1)
+		chansLow := f.At(x, bounds.Max.Y-2)
+		chansOutUp := f.At(x, bounds.Min.Y)
+		chansOutLow := f.At(x, bounds.Max.Y-1)
 		for c := 0; c < f.Chancnt; c++ {
-			f.Set(x, bounds.Min.Y, c, f.At(x, bounds.Min.Y+1, 0))
-		}
-		for c := 0; c < f.Chancnt; c++ {
-			f.Set(x, bounds.Max.Y-1, c, f.At(x, bounds.Max.Y-2, 0))
+			chansOutLow[c] = chansLow[c]
+			chansOutUp[x] = chansUp[c]
 		}
 	}
 
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		chansLeft := f.At(bounds.Min.X+1, y)
+		chansRight := f.At(bounds.Max.X-2, y)
+		chansOutLeft := f.At(bounds.Min, y)
+		chansOutRight := f.At(boinds.Max.X-1, y)
 		for c := 0; c < f.Chancnt; c++ {
-			f.Set(bounds.Min.X, y, c, f.At(bounds.Min.X+1, y, 0))
-		}
-		for c := 0; c < f.Chancnt; c++ {
-			f.Set(bounds.Max.X-1, y, c, f.At(bounds.Max.X-2, y, 0))
+			chansOutLeft[c] = chansLeft[c]
+			chansOutRight[c] = chansRight[c]
 		}
 	}
 }
@@ -88,7 +92,7 @@ func GrayFloatWithDummiesFromImage(img image.Image) (f *FloatImg) {
 
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			c := img.At(x, y)
+			c := img.At(x, y)[0]
 			switch t := c.(type) {
 			case color.Gray:
 				gray = t.Y
@@ -125,7 +129,7 @@ func GrayFloatNoDummiesToImage(img *FloatImg) (f *image.Gray) {
 	var help float32
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			help = 255.0 * img.At(x, y, 0) / max
+			help = 255.0 * img.At(x, y)[0] / max
 			switch {
 			case help < 0.0:
 				f.SetGray(x, y, color.Gray{0})

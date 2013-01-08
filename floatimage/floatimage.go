@@ -40,13 +40,22 @@ func (p *FloatImg) PixOffset(x, y int) int {
 // at this postion can be manipulated using the returned slice
 func (p *FloatImg) At(x, y int) []float32 {
 	i := p.PixOffset(x, y)
-	return p.Pix[i:c]
+	return p.Pix[i:i+p.Chancnt]
 }
 
 // Set sets the float32 value val at position x,y for channel c
 func (p *FloatImg) Set(x, y, c int, val float32) {
 	i := p.PixOffset(x, y)
 	p.Pix[i+c] = val
+}
+
+// Copy copies the content of the original image into this image
+// adjusting size as necessary
+func (p *FloatImg) Copy(orig *FloatImg) {
+	p.Rect = orig.Rect
+	p.Stride = orig.Stride
+	p.Chancnt = orig.Chancnt
+	copy(p.Pix, orig.Pix)
 }
 
 // Dummies sets the outer most row and column to mirroring boundary conditions
@@ -59,15 +68,15 @@ func (f *FloatImg) Dummies() {
 		chansOutLow := f.At(x, bounds.Max.Y-1)
 		for c := 0; c < f.Chancnt; c++ {
 			chansOutLow[c] = chansLow[c]
-			chansOutUp[x] = chansUp[c]
+			chansOutUp[c] = chansUp[c]
 		}
 	}
 
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		chansLeft := f.At(bounds.Min.X+1, y)
 		chansRight := f.At(bounds.Max.X-2, y)
-		chansOutLeft := f.At(bounds.Min, y)
-		chansOutRight := f.At(boinds.Max.X-1, y)
+		chansOutLeft := f.At(bounds.Min.X, y)
+		chansOutRight := f.At(bounds.Max.X-1, y)
 		for c := 0; c < f.Chancnt; c++ {
 			chansOutLeft[c] = chansLeft[c]
 			chansOutRight[c] = chansRight[c]
@@ -93,7 +102,7 @@ func GrayFloatWithDummiesFromImage(img image.Image) (f *FloatImg) {
 
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			c := img.At(x, y)[0]
+			c := img.At(x, y)
 			switch t := c.(type) {
 			case color.Gray:
 				gray = t.Y

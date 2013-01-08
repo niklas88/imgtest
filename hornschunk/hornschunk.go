@@ -35,8 +35,9 @@ func deriveMixed(f1, f2 *floatimage.FloatImg) *floatimage.FloatImg {
 			Fx := (f1.At(i+1, j)[0] - f1.At(i-1, j)[0] + f2.At(i+1, j)[0] - f2.At(i-1, j)[0]) / (4.0 * hx)
 			Fy := (f1.At(i, j+1)[0] - f1.At(i, j-1)[0] + f2.At(i, j+1)[0] - f2.At(i, j-1)[0]) / (4.0 * hy)
 			Fz := f2.At(i, j)[0] - f1.At(i, j)[0]
-			dvs := derivs.At(i, j)
-			dvs[Fxc], dvs[Fyc], dvs[Fzc] = Fx, Fy, Fz
+			derivs.Set(i, j, Fxc, Fx)
+			derivs.Set(i, j, Fyc, Fy)
+			derivs.Set(i, j, Fzc, Fz)
 		}
 	}
 	return derivs
@@ -44,18 +45,17 @@ func deriveMixed(f1, f2 *floatimage.FloatImg) *floatimage.FloatImg {
 
 func flow(alpha float64, derivs, vecField *floatimage.FloatImg) {
 	bounds := vecField.Bounds()
-	oldVec := floatimage.NewFloatImg(bounds, 2)
+	oldvec := floatimage.NewFloatImg(bounds, 2)
 	// Copy old vector field
 	for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
 		for i := bounds.Min.X; i < bounds.Max.X; i++ {
-			oldval, newval := oldVec.At(i, j), vecField.At(i, j)
-			copy(newval, oldval)
+			oldvec.Set(i, j, 0, vecField.At(i, j)[0])
+			oldvec.Set(i, j, 1, vecField.At(i, j)[1])
 		}
 	}
 
 	help := 1.0 / float32(alpha)
 	var nn int
-	var uv []float32
 	var uSum, vSum float32
 
 	for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
@@ -64,44 +64,40 @@ func flow(alpha float64, derivs, vecField *floatimage.FloatImg) {
 			uSum, vSum = 0, 0
 			if i > bounds.Min.X {
 				nn++
-				uv = oldVec.At(i-1, j)
-				uSum += uv[0]
-				vSum += uv[1]
+				uSum += oldvec.At(i-1, j)[0]
+				vSum += oldvec.At(i-1, j)[1]
 			}
 
 			if i < bounds.Max.X-1 {
 				nn++
-				uv = oldVec.At(i+1, j)
-				uSum += uv[0]
-				vSum += uv[1]
+				uSum += oldvec.At(i+1, j)[0]
+				vSum += oldvec.At(i+1, j)[1]
 			}
 
 			if j > bounds.Min.Y {
 				nn++
-				uv = oldVec.At(i, j-1)
-				uSum += uv[0]
-				vSum += uv[1]
+				uSum += oldvec.At(i, j-1)[0]
+				vSum += oldvec.At(i, j-1)[1]
 			}
 
 			if j < bounds.Max.Y-1 {
 				nn++
-				uv = oldVec.At(i, j+1)
-				uSum += uv[0]
-				vSum += uv[1]
+				uSum += oldvec.At(i, j+1)[0]
+				vSum += oldvec.At(i, j+1)[1]
 			}
-			dvs := derivs.At(i, j)
-			fxij := dvs[Fxc]
-			fyij := dvs[Fyc]
-			fzij := dvs[Fzc]
-			uv = oldVec.At(i, j)
-			voldij := uv[0]
-			uoldij := uv[1]
+
+			fxij := derivs.At(i, j)[Fxc]
+			fyij := derivs.At(i, j)[Fyc]
+			fzij := derivs.At(i, j)[Fzc]
+			voldij := oldvec.At(i, j)[1]
+			uoldij := oldvec.At(i, j)[0]
 			uSum -= help * fxij * (fyij*voldij + fzij)
 			uSum /= float32(nn) + help*fxij*fxij
 			vSum -= help * fyij * (fxij*uoldij + fzij)
 			vSum /= float32(nn) + help*fyij*fyij
-			uv = vecField.At(i, j)
-			uv[0], uv[1] = uSum, vSum
+
+			vecField.Set(i, j, 0, uSum)
+			vecField.Set(i, j, 1, vSum)
 		}
 	}
 }
@@ -210,8 +206,7 @@ func main() {
 		/* calculate flow magnitude */
 		for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
 			for i := bounds.Min.X; i < bounds.Max.X; i++ {
-				uv := vecField.At(i, j)
-				tmp := uv[0]*uv[0] + uv[1]*uv[1]
+				tmp := vecField.At(i, j)[0]*vecField.At(i, j)[0] + vecField.At(i, j)[1]*vecField.At(i, j)[1]
 				magImg.Set(i, j, 0, float32(math.Sqrt(float64(tmp))))
 			}
 		}

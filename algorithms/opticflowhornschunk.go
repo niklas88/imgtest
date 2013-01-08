@@ -83,7 +83,10 @@ func flow(alpha float32, derivs, oldvec , vecField *floatimage.FloatImg) {
 		}
 	}
 }
-
+// OpticFlowHornSchunk computes the optic flow between two images
+// the images need to have Dummie borders (see floatimage.Dummies())
+// applied.
+// It returns the optic flow field as a 2 channel floatimage.FloatImg
 func OpticFlowHornSchunk(f1, f2 *floatimage.FloatImg, alpha float32, iterations int) (uv *floatimage.FloatImg){
 	// Compute fx, fy, fz derivatives as FloatImg with 3 channels for faster access
 	derivs := deriveMixed(f1, f2)
@@ -103,6 +106,8 @@ func OpticFlowHornSchunk(f1, f2 *floatimage.FloatImg, alpha float32, iterations 
 	return
 }
 
+// MagImage generates a magnitude image from an optic flow
+// field and returns it as a single channel floatimage.FloatImg
 func MagImage(uv *floatimage.FloatImg) (magImg *floatimage.FloatImg){
 	bounds := uv.Bounds()
 	// Magnitude image

@@ -9,123 +9,15 @@ import (
 	"fmt"
 	"github.com/harrydb/go/img/pnm"
 	"github.com/niklas88/imgtest/floatimage"
+	"github.com/niklas88/imgtest/algorithms"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"log"
-	"math"
 	"os"
 )
 
-// Derivatives fx, fy, fz as 3 channel FloatImg to make access sane
-const (
-	Fxc = iota
-	Fyc = iota
-	Fzc = iota
-)
-
-func deriveMixed(f1, f2 *floatimage.FloatImg) *floatimage.FloatImg {
-	const hx = 1.0
-	const hy = 1.0
-	bounds := f1.Bounds()
-	derivs := floatimage.NewFloatImg(bounds, 3)
-	for j := bounds.Min.Y + 1; j < bounds.Max.Y-1; j++ {
-		for i := bounds.Min.X + 1; i < bounds.Max.X-1; i++ {
-			Fx := (f1.At(i+1, j)[0] - f1.At(i-1, j)[0] + f2.At(i+1, j)[0] - f2.At(i-1, j)[0]) / (4.0 * hx)
-			Fy := (f1.At(i, j+1)[0] - f1.At(i, j-1)[0] + f2.At(i, j+1)[0] - f2.At(i, j-1)[0]) / (4.0 * hy)
-			Fz := f2.At(i, j)[0] - f1.At(i, j)[0]
-			dvs := derivs.At(i, j)
-			dvs[Fxc], dvs[Fyc], dvs[Fzc] = Fx, Fy, Fz
-		}
-	}
-	return derivs
-}
-
-func flow(alpha float32, derivs, oldvec , vecField *floatimage.FloatImg) {
-	bounds := vecField.Bounds()
-
-	help := 1.0 / alpha
-	var nn int
-	var uSum, vSum float32
-	var uv []float32
-	for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
-		for i := bounds.Min.X; i < bounds.Max.X; i++ {
-			nn = 0
-			uSum, vSum = 0, 0
-			if i > bounds.Min.X {
-				nn++
-				uv = oldvec.At(i-1,j)
-				uSum += uv[0]
-				vSum += uv[1]
-			}
-
-			if i < bounds.Max.X-1 {
-				nn++
-				uv = oldvec.At(i+1, j)
-				uSum += uv[0]
-				vSum += uv[1]
-			}
-
-			if j > bounds.Min.Y {
-				nn++
-				uv = oldvec.At(i, j-1)
-				uSum += uv[0]
-				vSum += uv[1]
-			}
-
-			if j < bounds.Max.Y-1 {
-				nn++
-				uv = oldvec.At(i, j+1)
-				uSum += uv[0]
-				vSum += uv[1]
-			}
-			dvs := derivs.At(i, j)
-			fxij, fyij, fzij := dvs[Fxc], dvs[Fyc], dvs[Fzc]
-			uv = oldvec.At(i, j)
-			uSum -= help * fxij * (fyij*uv[1] + fzij)
-			uSum /= float32(nn) + help*fxij*fxij
-			vSum -= help * fyij * (fxij*uv[0] + fzij)
-			vSum /= float32(nn) + help*fyij*fyij
-			uv = vecField.At(i,j)
-			uv[0], uv[1] = uSum, vSum
-		}
-	}
-}
-
-func OpticFlow(f1, f2 *floatimage.FloatImg) (uv, magImg *floatimage.FloatImg){
-	// Compute fx, fy, fz derivatives as FloatImg with 3 channels for faster access
-	derivs := deriveMixed(f1, f2)
-	// bounds without dummies
-	bounds := f1.Bounds()
-
-	// Magnitude image
-	magImg = floatimage.NewFloatImg(bounds, 1)
-	// vector field as FloatImg with 2 channels
-	uv = floatimage.NewFloatImg(bounds, 2)
-	// temporary storage for vector field from previous iteration
-	uvOld := floatimage.NewFloatImg(bounds, 2)
-	var min, max, mean, variance float32
-	// Process image using the Jacobi method to incrementally compute the vector field
-	for k := 1; k <= iterations; k++ {
-		fmt.Printf("iteration number: %d \n", k)
-		flow(float32(alpha), derivs, uvOld, uv)
-
-		/* calculate flow magnitude */
-		for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
-			for i := bounds.Min.X; i < bounds.Max.X; i++ {
-				vec := uv.At(i, j)
-				tmp := vec[0]*vec[0] + vec[1]*vec[1]
-				magImg.Set(i, j, 0, float32(math.Sqrt(float64(tmp))))
-			}
-		}
-		min, max, mean, variance = analyse(magImg)
-		fmt.Printf("min = %f, max = %f, mean = %f, variance = %f\n", min, max, mean, variance)
-		uvOld.Copy(uv)
-	}
-
-	return
-}
 
 func analyse(img *floatimage.FloatImg) (min, max, mean, variance float32) {
 	var sum float64
@@ -171,8 +63,8 @@ func init() {
 	flag.StringVar(&finame1, "infile1", "img1.pgm", "The first image for optical flow computation")
 	flag.StringVar(&finame2, "infile2", "img2.pgm", "The second image for optical flow computation")
 	flag.StringVar(&foutname, "outfile", "out.pgm", "The flow magnitude image")
-	flag.Float64Var(&alpha, "alpha", 1.4, "The smoothing weight alpha > 0")
-	flag.IntVar(&iterations, "iterations", 100, "Number of iterations")
+	flag.Float64Var(&alpha, "alpha", 100.0, "The smoothing weight alpha > 0")
+	flag.IntVar(&iterations, "iterations", 160, "Number of iterations")
 }
 
 func main() {
@@ -214,7 +106,8 @@ func main() {
 	fmt.Printf("min1 = %f, max1 = %f, mean1 = %f, var1 = %f\n", min1, max1, mean1, var1)
 	fmt.Printf("min2 = %f, max2 = %f, mean2 = %f, var2 = %f\n", min2, max2, mean2, var2)
 
-	_, magImg := OpticFlow(f1, f2)
+	uv := algorithms.OpticFlowHornSchunk(f1, f2, float32(alpha), iterations)
+	magImg := algorithms.MagImage(uv)
 
 	fout, err := os.Create(foutname)
 	if err != nil {

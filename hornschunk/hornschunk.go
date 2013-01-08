@@ -35,71 +35,96 @@ func deriveMixed(f1, f2 *floatimage.FloatImg) *floatimage.FloatImg {
 			Fx := (f1.At(i+1, j)[0] - f1.At(i-1, j)[0] + f2.At(i+1, j)[0] - f2.At(i-1, j)[0]) / (4.0 * hx)
 			Fy := (f1.At(i, j+1)[0] - f1.At(i, j-1)[0] + f2.At(i, j+1)[0] - f2.At(i, j-1)[0]) / (4.0 * hy)
 			Fz := f2.At(i, j)[0] - f1.At(i, j)[0]
-			derivs.Set(i, j, Fxc, Fx)
-			derivs.Set(i, j, Fyc, Fy)
-			derivs.Set(i, j, Fzc, Fz)
+			dvs := derivs.At(i, j)
+			dvs[Fxc], dvs[Fyc], dvs[Fzc] = Fx, Fy, Fz
 		}
 	}
 	return derivs
 }
 
-func flow(alpha float64, derivs, vecField *floatimage.FloatImg) {
+func flow(alpha float32, derivs, oldvec , vecField *floatimage.FloatImg) {
 	bounds := vecField.Bounds()
-	oldvec := floatimage.NewFloatImg(bounds, 2)
-	// Copy old vector field
-	for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
-		for i := bounds.Min.X; i < bounds.Max.X; i++ {
-			oldvec.Set(i, j, 0, vecField.At(i, j)[0])
-			oldvec.Set(i, j, 1, vecField.At(i, j)[1])
-		}
-	}
 
-	help := 1.0 / float32(alpha)
+	help := 1.0 / alpha
 	var nn int
 	var uSum, vSum float32
-
+	var uv []float32
 	for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
 		for i := bounds.Min.X; i < bounds.Max.X; i++ {
 			nn = 0
 			uSum, vSum = 0, 0
 			if i > bounds.Min.X {
 				nn++
-				uSum += oldvec.At(i-1, j)[0]
-				vSum += oldvec.At(i-1, j)[1]
+				uv = oldvec.At(i-1,j)
+				uSum += uv[0]
+				vSum += uv[1]
 			}
 
 			if i < bounds.Max.X-1 {
 				nn++
-				uSum += oldvec.At(i+1, j)[0]
-				vSum += oldvec.At(i+1, j)[1]
+				uv = oldvec.At(i+1, j)
+				uSum += uv[0]
+				vSum += uv[1]
 			}
 
 			if j > bounds.Min.Y {
 				nn++
-				uSum += oldvec.At(i, j-1)[0]
-				vSum += oldvec.At(i, j-1)[1]
+				uv = oldvec.At(i, j-1)
+				uSum += uv[0]
+				vSum += uv[1]
 			}
 
 			if j < bounds.Max.Y-1 {
 				nn++
-				uSum += oldvec.At(i, j+1)[0]
-				vSum += oldvec.At(i, j+1)[1]
+				uv = oldvec.At(i, j+1)
+				uSum += uv[0]
+				vSum += uv[1]
 			}
-
-			fxij := derivs.At(i, j)[Fxc]
-			fyij := derivs.At(i, j)[Fyc]
-			fzij := derivs.At(i, j)[Fzc]
-			voldij := oldvec.At(i, j)[1]
-			uoldij := oldvec.At(i, j)[0]
-			uSum -= help * fxij * (fyij*voldij + fzij)
+			dvs := derivs.At(i, j)
+			fxij, fyij, fzij := dvs[Fxc], dvs[Fyc], dvs[Fzc]
+			uv = oldvec.At(i, j)
+			uSum -= help * fxij * (fyij*uv[1] + fzij)
 			uSum /= float32(nn) + help*fxij*fxij
-			vSum -= help * fyij * (fxij*uoldij + fzij)
+			vSum -= help * fyij * (fxij*uv[0] + fzij)
 			vSum /= float32(nn) + help*fyij*fyij
-
-			vecField.Set(i, j, 0, uSum)
-			vecField.Set(i, j, 1, vSum)
+			uv = vecField.At(i,j)
+			uv[0], uv[1] = uSum, vSum
 		}
 	}
+}
+
+func OpticFlow(f1, f2 *floatimage.FloatImg) (uv, magImg *floatimage.FloatImg){
+	// Compute fx, fy, fz derivatives as FloatImg with 3 channels for faster access
+	derivs := deriveMixed(f1, f2)
+	// bounds without dummies
+	bounds := f1.Bounds()
+
+	// Magnitude image
+	magImg = floatimage.NewFloatImg(bounds, 1)
+	// vector field as FloatImg with 2 channels
+	uv = floatimage.NewFloatImg(bounds, 2)
+	// temporary storage for vector field from previous iteration
+	uvOld := floatimage.NewFloatImg(bounds, 2)
+	var min, max, mean, variance float32
+	// Process image using the Jacobi method to incrementally compute the vector field
+	for k := 1; k <= iterations; k++ {
+		fmt.Printf("iteration number: %d \n", k)
+		flow(float32(alpha), derivs, uvOld, uv)
+
+		/* calculate flow magnitude */
+		for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
+			for i := bounds.Min.X; i < bounds.Max.X; i++ {
+				vec := uv.At(i, j)
+				tmp := vec[0]*vec[0] + vec[1]*vec[1]
+				magImg.Set(i, j, 0, float32(math.Sqrt(float64(tmp))))
+			}
+		}
+		min, max, mean, variance = analyse(magImg)
+		fmt.Printf("min = %f, max = %f, mean = %f, variance = %f\n", min, max, mean, variance)
+		uvOld.Copy(uv)
+	}
+
+	return
 }
 
 func analyse(img *floatimage.FloatImg) (min, max, mean, variance float32) {
@@ -189,30 +214,7 @@ func main() {
 	fmt.Printf("min1 = %f, max1 = %f, mean1 = %f, var1 = %f\n", min1, max1, mean1, var1)
 	fmt.Printf("min2 = %f, max2 = %f, mean2 = %f, var2 = %f\n", min2, max2, mean2, var2)
 
-	// Compute fx, fy, fz derivatives as FloatImg with 3 channels for faster access
-	derivs := deriveMixed(f1, f2)
-
-	bounds := img1.Bounds()
-	// vector field as FloatImg with 2 channels
-	vecField := floatimage.NewFloatImg(bounds, 2)
-	// Magnitude image as FloatImg with 1 channel
-	magImg := floatimage.NewFloatImg(bounds, 1)
-	var min, max, mean, variance float32
-	// Process image using the Jacobi method to incrementally compute the vector field
-	for k := 1; k <= iterations; k++ {
-		fmt.Printf("iteration number: %d \n", k)
-		flow(alpha, derivs, vecField)
-
-		/* calculate flow magnitude */
-		for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
-			for i := bounds.Min.X; i < bounds.Max.X; i++ {
-				tmp := vecField.At(i, j)[0]*vecField.At(i, j)[0] + vecField.At(i, j)[1]*vecField.At(i, j)[1]
-				magImg.Set(i, j, 0, float32(math.Sqrt(float64(tmp))))
-			}
-		}
-		min, max, mean, variance = analyse(magImg)
-		fmt.Printf("min = %f, max = %f, mean = %f, variance = %f\n", min, max, mean, variance)
-	}
+	_, magImg := OpticFlow(f1, f2)
 
 	fout, err := os.Create(foutname)
 	if err != nil {

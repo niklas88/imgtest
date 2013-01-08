@@ -127,18 +127,23 @@ func GrayFloatNoDummiesToImage(img *FloatImg) (f *image.Gray) {
 	if bounds.Empty() {
 		return &image.Gray{}
 	}
+	p1 := image.Point{bounds.Min.X + 1, bounds.Min.Y + 1}
+	p2 := image.Point{bounds.Max.X - 1, bounds.Max.Y - 1}
 
-	f = image.NewGray(bounds)
+	realBounds := image.Rectangle{p1, p2}
+
+
+	f = image.NewGray(realBounds)
 
 	max := img.Pix[0]
-	for i := 0; i < len(img.Pix); i++ {
-		if img.Pix[i] > max {
-			max = img.Pix[i]
+	for _, v := range img.Pix {
+		if v > max {
+			max = v
 		}
 	}
 	var help float32
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+	for y := realBounds.Min.Y; y < realBounds.Max.Y; y++ {
+		for x := realBounds.Min.X; x < realBounds.Max.X; x++ {
 			help = 255.0 * img.At(x, y)[0] / max
 			switch {
 			case help < 0.0:

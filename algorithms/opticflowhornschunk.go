@@ -20,16 +20,22 @@ const (
 func deriveMixed(f1, f2 *floatimage.FloatImg) *floatimage.FloatImg {
 	const hx = 1.0
 	const hy = 1.0
+	var wg sync.WaitGroup
 	bounds := f1.Bounds()
+	wg.Add(bounds.Max.Y - bounds.Min.Y - 2)
+
 	derivs := floatimage.NewFloatImg(bounds, 3)
 	for j := bounds.Min.Y + 1; j < bounds.Max.Y-1; j++ {
-		for i := bounds.Min.X + 1; i < bounds.Max.X-1; i++ {
-			Fx := (f1.AtF(i+1, j)[0] - f1.AtF(i-1, j)[0] + f2.AtF(i+1, j)[0] - f2.AtF(i-1, j)[0]) / (4.0 * hx)
-			Fy := (f1.AtF(i, j+1)[0] - f1.AtF(i, j-1)[0] + f2.AtF(i, j+1)[0] - f2.AtF(i, j-1)[0]) / (4.0 * hy)
-			Fz := f2.AtF(i, j)[0] - f1.AtF(i, j)[0]
-			dvs := derivs.AtF(i, j)
-			dvs[Fxc], dvs[Fyc], dvs[Fzc] = Fx, Fy, Fz
-		}
+		go func(j int) {
+			bounds := f1.Bounds()
+			for i := bounds.Min.X + 1; i < bounds.Max.X-1; i++ {
+				Fx := (f1.AtF(i+1, j)[0] - f1.AtF(i-1, j)[0] + f2.AtF(i+1, j)[0] - f2.AtF(i-1, j)[0]) / (4.0 * hx)
+				Fy := (f1.AtF(i, j+1)[0] - f1.AtF(i, j-1)[0] + f2.AtF(i, j+1)[0] - f2.AtF(i, j-1)[0]) / (4.0 * hy)
+				Fz := f2.AtF(i, j)[0] - f1.AtF(i, j)[0]
+				dvs := derivs.AtF(i, j)
+				dvs[Fxc], dvs[Fyc], dvs[Fzc] = Fx, Fy, Fz
+			}
+		}(j)
 	}
 	return derivs
 }
@@ -123,13 +129,19 @@ func MagImage(uv *floatimage.FloatImg) (magImg *floatimage.FloatImg) {
 	// Magnitude image
 	magImg = floatimage.NewFloatImg(bounds, 1)
 	// Calculate
+	var wg sync.WaitGroup
+	wg.Add(bounds.Max.Y - bounds.Min.Y)
 	for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
-		for i := bounds.Min.X; i < bounds.Max.X; i++ {
-			vec := uv.AtF(i, j)
-			tmp := vec[0]*vec[0] + vec[1]*vec[1]
-			magImg.Set(i, j, 0, float32(math.Sqrt(float64(tmp))))
-		}
+		go func(j int) {
+			for i := bounds.Min.X; i < bounds.Max.X; i++ {
+				vec := uv.AtF(i, j)
+				tmp := vec[0]*vec[0] + vec[1]*vec[1]
+				magImg.Set(i, j, 0, float32(math.Sqrt(float64(tmp))))
+			}
+			wg.Done()
+		}(j)
 	}
+	wg.Wait()
 	return
 
 }

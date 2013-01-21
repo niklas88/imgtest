@@ -78,6 +78,9 @@ func (p *FloatImg) AtF(x, y int) []float32 {
 // At implements image.Image by applying ColorFunc on the
 // given image point
 func (p *FloatImg) At(x, y int) color.Color {
+	if !(image.Point{x, y}.In(p.Rect)) {
+		return color.Black
+	}
 	i := p.PixOffset(x, y)
 	return p.ColorFunc(x, y, p.Pix[i:i+p.Chancnt])
 }

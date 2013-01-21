@@ -23,17 +23,17 @@ func deriveMixed(f1, f2 *floatimage.FloatImg) *floatimage.FloatImg {
 	derivs := floatimage.NewFloatImg(bounds, 3)
 	for j := bounds.Min.Y + 1; j < bounds.Max.Y-1; j++ {
 		for i := bounds.Min.X + 1; i < bounds.Max.X-1; i++ {
-			Fx := (f1.At(i+1, j)[0] - f1.At(i-1, j)[0] + f2.At(i+1, j)[0] - f2.At(i-1, j)[0]) / (4.0 * hx)
-			Fy := (f1.At(i, j+1)[0] - f1.At(i, j-1)[0] + f2.At(i, j+1)[0] - f2.At(i, j-1)[0]) / (4.0 * hy)
-			Fz := f2.At(i, j)[0] - f1.At(i, j)[0]
-			dvs := derivs.At(i, j)
+			Fx := (f1.AtF(i+1, j)[0] - f1.AtF(i-1, j)[0] + f2.AtF(i+1, j)[0] - f2.AtF(i-1, j)[0]) / (4.0 * hx)
+			Fy := (f1.AtF(i, j+1)[0] - f1.AtF(i, j-1)[0] + f2.AtF(i, j+1)[0] - f2.AtF(i, j-1)[0]) / (4.0 * hy)
+			Fz := f2.AtF(i, j)[0] - f1.AtF(i, j)[0]
+			dvs := derivs.AtF(i, j)
 			dvs[Fxc], dvs[Fyc], dvs[Fzc] = Fx, Fy, Fz
 		}
 	}
 	return derivs
 }
 
-func flow(alpha float32, derivs, oldvec , vecField *floatimage.FloatImg) {
+func flow(alpha float32, derivs, oldvec, vecField *floatimage.FloatImg) {
 	bounds := vecField.Bounds()
 
 	help := 1.0 / alpha
@@ -46,48 +46,49 @@ func flow(alpha float32, derivs, oldvec , vecField *floatimage.FloatImg) {
 			uSum, vSum = 0, 0
 			if i > bounds.Min.X {
 				nn++
-				uv = oldvec.At(i-1,j)
+				uv = oldvec.AtF(i-1, j)
 				uSum += uv[0]
 				vSum += uv[1]
 			}
 
 			if i < bounds.Max.X-1 {
 				nn++
-				uv = oldvec.At(i+1, j)
+				uv = oldvec.AtF(i+1, j)
 				uSum += uv[0]
 				vSum += uv[1]
 			}
 
 			if j > bounds.Min.Y {
 				nn++
-				uv = oldvec.At(i, j-1)
+				uv = oldvec.AtF(i, j-1)
 				uSum += uv[0]
 				vSum += uv[1]
 			}
 
 			if j < bounds.Max.Y-1 {
 				nn++
-				uv = oldvec.At(i, j+1)
+				uv = oldvec.AtF(i, j+1)
 				uSum += uv[0]
 				vSum += uv[1]
 			}
-			dvs := derivs.At(i, j)
+			dvs := derivs.AtF(i, j)
 			fxij, fyij, fzij := dvs[Fxc], dvs[Fyc], dvs[Fzc]
-			uv = oldvec.At(i, j)
+			uv = oldvec.AtF(i, j)
 			uSum -= help * fxij * (fyij*uv[1] + fzij)
 			uSum /= float32(nn) + help*fxij*fxij
 			vSum -= help * fyij * (fxij*uv[0] + fzij)
 			vSum /= float32(nn) + help*fyij*fyij
-			uv = vecField.At(i,j)
+			uv = vecField.AtF(i, j)
 			uv[0], uv[1] = uSum, vSum
 		}
 	}
 }
+
 // OpticFlowHornSchunk computes the optic flow between two images
 // the images need to have Dummie borders (see floatimage.Dummies())
 // applied.
 // It returns the optic flow field as a 2 channel floatimage.FloatImg
-func OpticFlowHornSchunk(f1, f2 *floatimage.FloatImg, alpha float32, iterations int) (uv *floatimage.FloatImg){
+func OpticFlowHornSchunk(f1, f2 *floatimage.FloatImg, alpha float32, iterations int) (uv *floatimage.FloatImg) {
 	// Compute fx, fy, fz derivatives as FloatImg with 3 channels for faster access
 	derivs := deriveMixed(f1, f2)
 	// bounds without dummies
@@ -108,14 +109,14 @@ func OpticFlowHornSchunk(f1, f2 *floatimage.FloatImg, alpha float32, iterations 
 
 // MagImage generates a magnitude image from an optic flow
 // field and returns it as a single channel floatimage.FloatImg
-func MagImage(uv *floatimage.FloatImg) (magImg *floatimage.FloatImg){
+func MagImage(uv *floatimage.FloatImg) (magImg *floatimage.FloatImg) {
 	bounds := uv.Bounds()
 	// Magnitude image
 	magImg = floatimage.NewFloatImg(bounds, 1)
 	// Calculate
 	for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
 		for i := bounds.Min.X; i < bounds.Max.X; i++ {
-			vec := uv.At(i, j)
+			vec := uv.AtF(i, j)
 			tmp := vec[0]*vec[0] + vec[1]*vec[1]
 			magImg.Set(i, j, 0, float32(math.Sqrt(float64(tmp))))
 		}

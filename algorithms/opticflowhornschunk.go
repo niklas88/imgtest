@@ -5,10 +5,13 @@ Horn & Schunk and an iterative Jacobi scheme
 package algorithms
 
 import (
+	"flag"
 	"github.com/niklas88/imgtest/floatimage"
 	"math"
 	"sync"
 )
+
+var numRowsPerGo int
 
 // Derivatives fx, fy, fz as 3 channel FloatImg to make access sane
 const (
@@ -17,86 +20,110 @@ const (
 	Fzc = iota
 )
 
+func init() {
+	flag.IntVar(&numRowsPerGo, "rowspergo", 1, "Number of rows to compute per Goroutine")
+}
+
+func min(i, j int) int {
+	if i < j {
+		return i
+	}
+	return j
+}
+
+func innerDerive(f1, f2, derivs *floatimage.FloatImg, wg *sync.WaitGroup, minRow, maxRow int) {
+	const hx = 1.0
+	const hy = 1.0
+	bounds := f1.Bounds()
+	for j := minRow; j < maxRow; j++ {
+		for i := bounds.Min.X + 1; i < bounds.Max.X-1; i++ {
+			Fx := (f1.AtF(i+1, j)[0] - f1.AtF(i-1, j)[0] + f2.AtF(i+1, j)[0] - f2.AtF(i-1, j)[0]) / (4.0 * hx)
+			Fy := (f1.AtF(i, j+1)[0] - f1.AtF(i, j-1)[0] + f2.AtF(i, j+1)[0] - f2.AtF(i, j-1)[0]) / (4.0 * hy)
+			Fz := f2.AtF(i, j)[0] - f1.AtF(i, j)[0]
+			dvs := derivs.AtF(i, j)
+			dvs[Fxc], dvs[Fyc], dvs[Fzc] = Fx, Fy, Fz
+		}
+	}
+	wg.Done()
+}
+
 func deriveMixed(f1, f2 *floatimage.FloatImg) *floatimage.FloatImg {
 	const hx = 1.0
 	const hy = 1.0
 	var wg sync.WaitGroup
 	bounds := f1.Bounds()
-	wg.Add(bounds.Max.Y - bounds.Min.Y - 2)
-
 	derivs := floatimage.NewFloatImg(bounds, 3)
-	for j := bounds.Min.Y + 1; j < bounds.Max.Y-1; j++ {
-		go func(j int) {
-			bounds := f1.Bounds()
-			for i := bounds.Min.X + 1; i < bounds.Max.X-1; i++ {
-				Fx := (f1.AtF(i+1, j)[0] - f1.AtF(i-1, j)[0] + f2.AtF(i+1, j)[0] - f2.AtF(i-1, j)[0]) / (4.0 * hx)
-				Fy := (f1.AtF(i, j+1)[0] - f1.AtF(i, j-1)[0] + f2.AtF(i, j+1)[0] - f2.AtF(i, j-1)[0]) / (4.0 * hy)
-				Fz := f2.AtF(i, j)[0] - f1.AtF(i, j)[0]
-				dvs := derivs.AtF(i, j)
-				dvs[Fxc], dvs[Fyc], dvs[Fzc] = Fx, Fy, Fz
-			}
-			wg.Done()
-		}(j)
+	for lower := bounds.Min.Y + 1; lower < bounds.Max.Y-1; {
+		upper := min(lower+numRowsPerGo, bounds.Max.Y-1)
+		wg.Add(1)
+		go innerDerive(f1, f2, derivs, &wg, lower, upper)
+		lower = upper
 	}
 	wg.Wait()
 	return derivs
 }
 
+func innerFlow(alpha float32, derivs, oldvec, vecField *floatimage.FloatImg, wg *sync.WaitGroup, minRow, maxRow int) {
+	bounds := vecField.Bounds()
+
+	help := 1.0 / alpha
+	var nn int
+	var uSum, vSum float32
+	var uv []float32
+	for j := minRow; j < maxRow; j++ {
+		for i := bounds.Min.X; i < bounds.Max.X; i++ {
+			nn = 0
+			uSum, vSum = 0, 0
+			if i > bounds.Min.X {
+				nn++
+				uv = oldvec.AtF(i-1, j)
+				uSum += uv[0]
+				vSum += uv[1]
+			}
+
+			if i < bounds.Max.X-1 {
+				nn++
+				uv = oldvec.AtF(i+1, j)
+				uSum += uv[0]
+				vSum += uv[1]
+			}
+
+			if j > bounds.Min.Y {
+				nn++
+				uv = oldvec.AtF(i, j-1)
+				uSum += uv[0]
+				vSum += uv[1]
+			}
+
+			if j < bounds.Max.Y-1 {
+				nn++
+				uv = oldvec.AtF(i, j+1)
+				uSum += uv[0]
+				vSum += uv[1]
+			}
+			dvs := derivs.AtF(i, j)
+			fxij, fyij, fzij := dvs[Fxc], dvs[Fyc], dvs[Fzc]
+			uv = oldvec.AtF(i, j)
+			uSum -= help * fxij * (fyij*uv[1] + fzij)
+			uSum /= float32(nn) + help*fxij*fxij
+			vSum -= help * fyij * (fxij*uv[0] + fzij)
+			vSum /= float32(nn) + help*fyij*fyij
+			uv = vecField.AtF(i, j)
+			uv[0], uv[1] = uSum, vSum
+		}
+	}
+	wg.Done()
+}
+
 func flow(alpha float32, derivs, oldvec, vecField *floatimage.FloatImg) {
 	bounds := vecField.Bounds()
-	count := bounds.Max.Y - bounds.Min.Y
 	var wg sync.WaitGroup
-	wg.Add(count)
-	for j := bounds.Min.Y; j < bounds.Max.Y; j++ {
-		go func(j int) {
-			bounds := vecField.Bounds()
-			help := 1.0 / alpha
-			var nn int
-			var uSum, vSum float32
-			var uv []float32
 
-			for i := bounds.Min.X; i < bounds.Max.X; i++ {
-				nn = 0
-				uSum, vSum = 0, 0
-				if i > bounds.Min.X {
-					nn++
-					uv = oldvec.AtF(i-1, j)
-					uSum += uv[0]
-					vSum += uv[1]
-				}
-
-				if i < bounds.Max.X-1 {
-					nn++
-					uv = oldvec.AtF(i+1, j)
-					uSum += uv[0]
-					vSum += uv[1]
-				}
-
-				if j > bounds.Min.Y {
-					nn++
-					uv = oldvec.AtF(i, j-1)
-					uSum += uv[0]
-					vSum += uv[1]
-				}
-
-				if j < bounds.Max.Y-1 {
-					nn++
-					uv = oldvec.AtF(i, j+1)
-					uSum += uv[0]
-					vSum += uv[1]
-				}
-				dvs := derivs.AtF(i, j)
-				fxij, fyij, fzij := dvs[Fxc], dvs[Fyc], dvs[Fzc]
-				uv = oldvec.AtF(i, j)
-				uSum -= help * fxij * (fyij*uv[1] + fzij)
-				uSum /= float32(nn) + help*fxij*fxij
-				vSum -= help * fyij * (fxij*uv[0] + fzij)
-				vSum /= float32(nn) + help*fyij*fyij
-				uv = vecField.AtF(i, j)
-				uv[0], uv[1] = uSum, vSum
-			}
-			wg.Done()
-		}(j)
+	for lower := bounds.Min.Y; lower < bounds.Max.Y;{
+		upper := min(lower + numRowsPerGo, bounds.Max.Y)
+		wg.Add(1)
+		go innerFlow(alpha, derivs, oldvec, vecField, &wg, lower, upper)
+		lower = upper
 	}
 	wg.Wait()
 }

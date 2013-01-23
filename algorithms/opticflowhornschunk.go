@@ -35,8 +35,10 @@ func deriveMixed(f1, f2 *floatimage.FloatImg) *floatimage.FloatImg {
 				dvs := derivs.AtF(i, j)
 				dvs[Fxc], dvs[Fyc], dvs[Fzc] = Fx, Fy, Fz
 			}
+			wg.Done()
 		}(j)
 	}
+	wg.Wait()
 	return derivs
 }
 
